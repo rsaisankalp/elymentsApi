@@ -1,0 +1,36 @@
+{
+  "name": "elyments-sdk",
+  "version": "0.1.0",
+  "description": "Baileys-style Elyments SDK (OTP + REST + XMPP)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "bin": {
+    "elyments": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:cli": "tsx src/cli.ts",
+    "dev:api": "tsx src/server.ts",
+    "dev:list": "tsx examples/list-chats.ts",
+    "dev:send": "tsx examples/send-text.ts",
+    "dev:group": "tsx examples/send-group.ts",
+    "dev:receive": "tsx examples/receive.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "@xmpp/client": "^0.14.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.5.4"
+  }
+}
