@@ -1,0 +1,5 @@
+.env
+.elyments/
+session.json
+node_modules/
+dist/
