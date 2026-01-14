@@ -231,7 +231,7 @@ export class ElymentsClient extends EventEmitter {
     const postedTime = Date.now();
 
     // 1. Get Upload URL
-    const { objectId, url: uploadUrl } = await getUploadUrl(session.chatAccessToken);
+    const { objectId, url: uploadUrl } = await getUploadUrl(session.accessToken);
 
     // 2. Upload to Azure
     await uploadToAzure(uploadUrl, filePath);
@@ -240,7 +240,7 @@ export class ElymentsClient extends EventEmitter {
     let thumbnailUrl: string | undefined;
     try {
       if (isImageType(infoType) || isVideoType(infoType)) {
-        const thumb = await getThumbnail(session.chatAccessToken, objectId, infoType);
+        const thumb = await getThumbnail(session.accessToken, objectId, infoType);
         thumbnailUrl = thumb.url;
       }
     } catch (e) {
