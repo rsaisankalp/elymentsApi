@@ -3,7 +3,8 @@ import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import WebSocket from "ws";
 import { OAuthBearerMechanism } from "./oauthbearer.js";
-import { ElymentsMessage, ElymentsSession, SendTextRequest } from "../types.js";
+import { ElymentsMessage, ElymentsSession, SendTextRequest, SendMediaRequest } from "../types.js";
+import { resolveMediaTypes } from "../media.js";
 
 type XmppClientOptions = {
   session: ElymentsSession;
@@ -137,6 +138,51 @@ export class ElymentsXmppClient extends EventEmitter {
       lang: request.lang ?? "en",
       isFwd: false,
       origin: request.origin ?? this.origin
+    });
+
+    const type = request.isGroup ? "groupchat" : "chat";
+    const stanza = xml(
+      "message",
+      { xmlns: "jabber:client", id: stanzaId, to: request.jid, type },
+      xml("origin-id", { xmlns: "urn:xmpp:sid:0", id: stanzaId }),
+      xml("body", {}, body)
+    );
+
+    await this.xmpp.send(stanza);
+    return bodyId;
+  }
+
+  async sendMedia(request: SendMediaRequest): Promise<string> {
+    if (!this.xmpp) throw new Error("XMPP is not connected.");
+
+    const stanzaId = crypto.randomUUID();
+    const bodyId = crypto.randomBytes(16).toString("hex").toUpperCase();
+    const now = Date.now();
+    const { outerType, innerType } = resolveMediaTypes(request.media.type);
+    const postedTime = request.media.postedTime ?? now;
+    const lastModified = request.media.lastModified ?? now;
+    const duration = request.media.duration ?? "";
+
+    const body = JSON.stringify({
+      senderName: request.senderName,
+      ver: 1,
+      info: {
+        blobId: request.media.id,
+        caption: request.caption ?? "",
+        thumbnail: request.media.thumbnailUrl ?? "",
+        name: request.media.name ?? "file",
+        postedTime,
+        size: formatSize(request.media.size ?? 0),
+        type: innerType,
+        mimeType: request.media.mimeType ?? "application/octet-stream",
+        lastModified,
+        userId: this.session.userId,
+        duration
+      },
+      id: bodyId,
+      type: outerType,
+      lang: "en",
+      origin: request.origin ?? "W|NodeJS|elyments-sdk"
     });
 
     const type = request.isGroup ? "groupchat" : "chat";
@@ -327,4 +373,12 @@ function createMessage(
 function extractDelayStamp(stanza: any): string | undefined {
   const delay = stanza?.getChild?.("delay", "urn:xmpp:delay");
   return delay?.attrs?.stamp;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
