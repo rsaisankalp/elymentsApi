@@ -1,9 +1,22 @@
 import { EventEmitter } from "node:events";
+import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
 import { generateOtp, verifyOtp } from "./api/identity.js";
 import { listChats } from "./api/chat.js";
+import { getUploadUrl, uploadToAzure, getThumbnail } from "./api/media.js";
 import { ElymentsXmppClient } from "./xmpp/client.js";
 import { loadSession, saveSession } from "./session.js";
 import { ElymentsAuthStore } from "./store.js";
+import {
+  inferMediaType,
+  isAudioType,
+  isImageType,
+  isVideoType,
+  normalizeMediaType,
+  resolveMimeType
+} from "./media.js";
 import {
   ChatSummary,
   ElymentsMessage,
@@ -13,7 +26,8 @@ import {
   OtpVerifyRequest,
   RecipientEntry,
   ResolvedRecipient,
-  SendTextRequest
+  SendTextRequest,
+  SendMediaRequest
 } from "./types.js";
 
 type ElymentsClientOptions = {
@@ -183,6 +197,80 @@ export class ElymentsClient extends EventEmitter {
 
   async sendGroupText(jid: string, text: string): Promise<string> {
     return this.sendText({ jid, text, isGroup: true });
+  }
+
+  async sendMedia(
+    request: Omit<SendMediaRequest, "senderName"> & { senderName?: string }
+  ): Promise<string> {
+    const session = this.requireSession();
+    const senderName = request.senderName ?? this.senderName ?? session.userId;
+    if (!senderName) {
+      throw new Error("senderName is required to send media.");
+    }
+    await this.connectXmpp();
+    return this.xmpp!.sendMedia({ ...request, senderName });
+  }
+
+  async uploadAndSendMedia(
+    filePath: string,
+    recipientInput: string,
+    options: ResolveRecipientOptions & { caption?: string; senderName?: string; type?: string } = {}
+  ): Promise<string> {
+    const session = this.requireSession();
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+
+    const recipient = await this.resolveRecipient(recipientInput, options);
+    const fileName = path.basename(filePath);
+    const normalizedType = normalizeMediaType(options.type);
+    const infoType = normalizedType ?? inferMediaType(filePath);
+    const mimeType = resolveMimeType(filePath);
+    const stat = fs.statSync(filePath);
+    const lastModified = Math.trunc(stat.mtimeMs);
+    const postedTime = Date.now();
+
+    // 1. Get Upload URL
+    const { objectId, url: uploadUrl } = await getUploadUrl(session.chatAccessToken);
+
+    // 2. Upload to Azure
+    await uploadToAzure(uploadUrl, filePath);
+
+    // 3. Get Thumbnail
+    let thumbnailUrl: string | undefined;
+    try {
+      if (isImageType(infoType) || isVideoType(infoType)) {
+        const thumb = await getThumbnail(session.chatAccessToken, objectId, infoType);
+        thumbnailUrl = thumb.url;
+      }
+    } catch (e) {
+      // Ignore thumbnail error and proceed
+    }
+
+    let duration: string | number | undefined;
+    if ((isAudioType(infoType) || isVideoType(infoType)) && process.env.ELYMENTS_DISABLE_DURATION !== "1") {
+      duration = await resolveDurationSeconds(filePath);
+    }
+
+    // 4. Send Message
+    return this.sendMedia({
+      jid: recipient.jid,
+      isGroup: recipient.isGroup,
+      senderName: options.senderName,
+      caption: options.caption,
+      media: {
+        type: infoType,
+        url: uploadUrl.split("?")[0],
+        id: objectId,
+        name: fileName,
+        size: stat.size,
+        mimeType,
+        thumbnailUrl,
+        duration,
+        lastModified,
+        postedTime
+      }
+    });
   }
 
   async fetchHistory(jid: string, max = 100): Promise<void> {
@@ -442,4 +530,27 @@ function extractSession(response: any): ElymentsSession {
     chatAccessToken,
     refreshToken
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+async function resolveDurationSeconds(filePath: string): Promise<string | undefined> {
+  const probe = process.env.ELYMENTS_FFPROBE ?? "ffprobe";
+  if (!probe) return undefined;
+  try {
+    const { stdout } = await execFileAsync(probe, [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath
+    ]);
+    const value = Number(String(stdout).trim());
+    if (!Number.isFinite(value) || value <= 0) return undefined;
+    return value.toFixed(2);
+  } catch {
+    return undefined;
+  }
 }

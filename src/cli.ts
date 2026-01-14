@@ -129,8 +129,9 @@ program
 
 program
   .command("sendMessage")
-  .requiredOption("--type <type>", "Text | Image | Voice")
-  .requiredOption("--message <message>", "message text")
+  .requiredOption("--type <type>", "Text | Image | Video | Audio | Voice | Document | File")
+  .option("--message <message>", "message text (for Text type) or caption (for media)")
+  .option("--file <path>", "file path for media upload")
   .requiredOption("--to <recipient>", "jid, phone number, or chat title")
   .option("--group", "treat recipient as group name")
   .option("--session <path>", "session path")
@@ -150,19 +151,31 @@ program
     await client.loadSession();
 
     const type = String(opts.type).toLowerCase();
-    if (type !== "text") {
-      throw new Error("Only --type Text is supported right now (media upload is pending).");
+    const isText = type === "text";
+
+    let id: string;
+    const recipient = await client.resolveRecipient(opts.to, { isGroup: Boolean(opts.group) });
+
+    if (isText) {
+      if (!opts.message) throw new Error("--message is required for type Text.");
+      id = await client.sendText({
+        jid: recipient.jid,
+        text: opts.message,
+        isGroup: recipient.isGroup
+      });
+    } else {
+      if (!opts.file) throw new Error("--file is required for media types.");
+      id = await client.uploadAndSendMedia(opts.file, opts.to, {
+        isGroup: Boolean(opts.group),
+        caption: opts.message,
+        senderName,
+        type
+      });
     }
 
-    const recipient = await client.resolveRecipient(opts.to, { isGroup: Boolean(opts.group) });
-    const id = await client.sendText({
-      jid: recipient.jid,
-      text: opts.message,
-      isGroup: recipient.isGroup
-    });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     await client.disconnectXmpp();
-    console.log(`Sent message ${id} to ${recipient.title} (${recipient.jid})`);
+    console.log(`Sent ${type} message ${id} to ${recipient.title} (${recipient.jid})`);
   });
 
 program
