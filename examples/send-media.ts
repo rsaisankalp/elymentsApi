@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { ElymentsClient } from "../src/client.js";
-import { getUploadUrl, uploadToAzure, getThumbnail } from "../src/api/media.js";
 import path from "path";
 import fs from "fs";
 
@@ -14,18 +13,8 @@ async function main() {
   }
 
   const recipientInput = process.env.ELYMENTS_TO || "Swamiji Office Vds Aol";
-  console.log(`Resolving recipient: ${recipientInput}...`);
-  
-  let recipient;
-  try {
-    recipient = await client.resolveRecipient(recipientInput);
-    console.log(`Resolved to: ${recipient.title} (${recipient.jid})`);
-  } catch (error: any) {
-    console.error(`Error resolving recipient: ${error.message}`);
-    process.exit(1);
-  }
-
   const filePath = process.argv[2] || "dummy_doc.pdf";
+  
   if (!fs.existsSync(filePath)) {
     console.error(`File not found: ${filePath}`);
     process.exit(1);
@@ -33,44 +22,29 @@ async function main() {
 
   const fileName = path.basename(filePath);
   const ext = path.extname(filePath).toLowerCase();
+  // Simple type inference for the log/options
   const type = ext === ".pdf" ? "pdf" : (ext === ".mp3" ? "audio" : (ext === ".mp4" ? "video" : "file"));
 
-  console.log(`Uploading ${fileName} (${type})...`);
+  console.log(`Sending ${fileName} (${type}) to ${recipientInput}...`);
 
-  // 1. Get Upload URL
-  const { objectId, url: uploadUrl } = await getUploadUrl(session.chatAccessToken);
-  console.log(`Got objectId: ${objectId}`);
-
-  // 2. Upload to Azure
-  await uploadToAzure(uploadUrl, filePath);
-  console.log("Uploaded to Azure.");
-
-  // 3. Get Thumbnail
-  let thumbnailUrl: string | undefined;
   try {
-    const thumb = await getThumbnail(session.chatAccessToken, objectId, type as any);
-    thumbnailUrl = thumb.url;
-    console.log("Got thumbnail URL.");
-  } catch (e) {
-    console.warn("Could not get thumbnail, proceeding without it.");
+    // uploadAndSendMedia handles:
+    // 1. Recipient resolution
+    // 2. File upload to Azure
+    // 3. Thumbnail generation (if image/video)
+    // 4. Duration calculation (if audio/video) via ffprobe
+    // 5. Sending the XMPP message with correct metadata
+    const messageId = await client.uploadAndSendMedia(filePath, recipientInput, {
+      type: type,
+      caption: `Sent via example script: ${fileName}`
+    });
+
+    console.log(`Media message sent successfully. ID: ${messageId}`);
+  } catch (error: any) {
+    console.error("Error sending media:", error.message);
+    process.exit(1);
   }
 
-  // 4. Send Media Message
-  console.log("Sending message...");
-  await client.sendMedia({
-    jid: recipient.jid,
-    isGroup: recipient.isGroup,
-    media: {
-      type: type as any,
-      url: uploadUrl.split("?")[0],
-      id: objectId,
-      name: fileName,
-      size: fs.statSync(filePath).size,
-      thumbnailUrl
-    }
-  });
-
-  console.log("Media message sent successfully.");
   setTimeout(() => process.exit(0), 2000);
 }
 

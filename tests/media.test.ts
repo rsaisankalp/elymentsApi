@@ -8,7 +8,7 @@ import {
 } from "../src/media.js";
 
 test("normalizeMediaType maps aliases and rejects unknowns", () => {
-  assert.equal(normalizeMediaType("Voice"), "audio");
+  assert.equal(normalizeMediaType("Voice"), "voice");
   assert.equal(normalizeMediaType("Document"), "document");
   assert.equal(normalizeMediaType("docx"), "docx");
   assert.equal(normalizeMediaType(""), undefined);
@@ -41,9 +41,17 @@ test("resolveMediaTypes maps to correct outer/inner types", () => {
     outerType: "audioVoiceNotes",
     innerType: "audio"
   });
+  assert.deepEqual(resolveMediaTypes("voice"), {
+    outerType: "audioVoiceNotes",
+    innerType: "audio"
+  });
   assert.deepEqual(resolveMediaTypes("docx"), {
     outerType: "documentSharing",
     innerType: "docx"
+  });
+  assert.deepEqual(resolveMediaTypes("pdf"), {
+    outerType: "documentSharing",
+    innerType: "pdf"
   });
   assert.deepEqual(resolveMediaTypes("file"), {
     outerType: "documentSharing",
