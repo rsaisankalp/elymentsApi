@@ -1,5 +1,5 @@
 import fs from "fs";
-import { resolveMimeType, type MediaInfoType } from "../media.js";
+import { type MediaInfoType } from "../media.js";
 
 const CHAT_BASE = "https://chatapi.elyments.com/api";
 
@@ -27,9 +27,42 @@ export async function getUploadUrl(accessToken: string): Promise<{ objectId: str
   return res.json() as Promise<{ objectId: string; url: string }>;
 }
 
+export async function getDownloadUrls(
+  accessToken: string,
+  objectIds: string[]
+): Promise<Array<{ objectId: string; url: string }>> {
+  const res = await fetch(`${CHAT_BASE}/azure/download/urls`, {
+    method: "POST",
+    headers: {
+      "authorization": `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      "accept": "application/json, text/plain, */*",
+      "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
+      "elyments-client-info": '{"applicationVersion":"143.0.0", "deviceOSVersion":"Mac OS","deviceModel":"chrome","deviceOEMName":"browser","deviceType":"Web"}',
+      "sec-ch-ua": '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"macOS"',
+      "sec-fetch-dest": "empty",
+      "sec-fetch-mode": "cors",
+      "sec-fetch-site": "same-site",
+      "Referer": "https://web.elyments.com/",
+      "Origin": "https://web.elyments.com"
+    },
+    body: JSON.stringify({ objectIds })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to get download URLs: ${res.status} ${text}`);
+  }
+  const data = await res.json();
+  if (Array.isArray(data)) return data as Array<{ objectId: string; url: string }>;
+  if (Array.isArray(data?.data)) return data.data as Array<{ objectId: string; url: string }>;
+  return [];
+}
+
 export async function uploadToAzure(uploadUrl: string, filePath: string): Promise<void> {
   const fileBuffer = fs.readFileSync(filePath);
-  const contentType = resolveMimeType(filePath);
+  const contentType = "application/x-www-form-urlencoded";
 
   const res = await fetch(uploadUrl, {
     method: "PUT",

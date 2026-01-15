@@ -4,6 +4,8 @@ export type MediaInfoType =
   | "image"
   | "video"
   | "audio"
+  | "voice"
+  | "ptt"
   | "pdf"
   | "file"
   | "document"
@@ -62,6 +64,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".opus": "audio/ogg",
   ".m4a": "audio/mp4",
   ".aac": "audio/aac",
   ".pdf": "application/pdf",
@@ -83,13 +86,16 @@ export function normalizeMediaType(input?: string): MediaInfoType | undefined {
   if (!input) return undefined;
   const value = input.trim().toLowerCase();
   if (!value) return undefined;
-  if (value === "voice") return "audio";
+  if (value === "voice") return "voice";
+  if (value === "ptt") return "ptt";
   if (value === "document") return "document";
   if (value === "file") return "file";
   const allowed: MediaInfoType[] = [
     "image",
     "video",
     "audio",
+    "voice",
+    "ptt",
     "pdf",
     "doc",
     "docx",
@@ -124,17 +130,31 @@ export function resolveMediaTypes(infoType: MediaInfoType): {
   if (infoType === "video") {
     return { outerType: "externalShareVideo", innerType: "video" };
   }
-  if (infoType === "audio") {
+  if (infoType === "audio" || infoType === "voice" || infoType === "ptt") {
     return { outerType: "audioVoiceNotes", innerType: "audio" };
   }
   if (infoType === "file" || infoType === "document") {
     return { outerType: "documentSharing", innerType: "document" };
   }
+  if (
+    infoType === "pdf" ||
+    infoType === "doc" ||
+    infoType === "docx" ||
+    infoType === "xls" ||
+    infoType === "xlsx" ||
+    infoType === "ppt" ||
+    infoType === "pptx" ||
+    infoType === "csv" ||
+    infoType === "txt" ||
+    infoType === "json"
+  ) {
+    return { outerType: "documentSharing", innerType: infoType };
+  }
   return { outerType: "documentSharing", innerType: infoType };
 }
 
 export function isAudioType(infoType: MediaInfoType): boolean {
-  return infoType === "audio";
+  return infoType === "audio" || infoType === "voice" || infoType === "ptt";
 }
 
 export function isVideoType(infoType: MediaInfoType): boolean {

@@ -39,6 +39,15 @@ app.post("/login/verify", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/logout/web", async (_req: Request, res: Response) => {
+  try {
+    await client.logoutAllWebSessions();
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get("/chats", async (_req: Request, res: Response) => {
   try {
     const chats = await client.listChats();
@@ -68,6 +77,21 @@ app.post("/recipients/alias", async (req: Request, res: Response) => {
       isGroup: Boolean(group)
     });
     res.json({ ok: true, entry });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/contacts/import", async (req: Request, res: Response) => {
+  try {
+    const payload = req.body ?? {};
+    const contacts = Array.isArray(payload) ? payload : payload.contacts;
+    if (!Array.isArray(contacts)) {
+      res.status(400).json({ ok: false, error: "contacts array is required" });
+      return;
+    }
+    await client.importContacts(contacts);
+    res.json({ ok: true, count: contacts.length });
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }

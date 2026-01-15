@@ -1,0 +1,363 @@
+openapi: 3.0.3
+info:
+  title: Elyments API
+  version: 0.1.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /login/otp:
+    post:
+      summary: Request OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "200":
+          description: OTP requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+  /login/verify:
+    post:
+      summary: Verify OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+  /logout/web:
+    post:
+      summary: Logout other web sessions
+      responses:
+        "200":
+          description: Logout completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+  /chats:
+    get:
+      summary: List chats
+      responses:
+        "200":
+          description: Chat list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatListResponse"
+  /groups:
+    get:
+      summary: List groups
+      responses:
+        "200":
+          description: Group list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatListResponse"
+  /recipients/alias:
+    post:
+      summary: Map phone number to a recipient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipientAliasRequest"
+      responses:
+        "200":
+          description: Alias saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecipientAliasResponse"
+  /contacts/import:
+    post:
+      summary: Import contacts for phone-only sending
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactsImportRequest"
+      responses:
+        "200":
+          description: Contacts imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactsImportResponse"
+  /messages:
+    post:
+      summary: Send a message (text or media)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendMessageResponse"
+  /history:
+    get:
+      summary: Fetch history messages
+      parameters:
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+        - in: query
+          name: timeout
+          schema:
+            type: integer
+            default: 8000
+        - in: query
+          name: group
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Message history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+  /events:
+    get:
+      summary: Server-sent events stream
+      parameters:
+        - in: query
+          name: to
+          schema:
+            type: string
+        - in: query
+          name: group
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+components:
+  schemas:
+    OtpRequest:
+      type: object
+      required: [countryCode, phoneNumber]
+      properties:
+        countryCode:
+          type: string
+        phoneNumber:
+          type: string
+    VerifyOtpRequest:
+      type: object
+      required: [countryCode, phoneNumber, otp]
+      properties:
+        countryCode:
+          type: string
+        phoneNumber:
+          type: string
+        otp:
+          type: string
+        sender:
+          type: string
+    OkResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        result:
+          type: object
+    SessionResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        session:
+          $ref: "#/components/schemas/Session"
+    Session:
+      type: object
+      properties:
+        userId:
+          type: string
+        accessToken:
+          type: string
+        chatAccessToken:
+          type: string
+        refreshToken:
+          type: string
+    ChatListResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        chats:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatSummary"
+    ChatSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        jid:
+          type: string
+        isGroup:
+          type: boolean
+        title:
+          type: string
+        lastMessage:
+          type: string
+    RecipientAliasRequest:
+      type: object
+      required: [to, phone]
+      properties:
+        to:
+          type: string
+        phone:
+          type: string
+        group:
+          type: boolean
+    RecipientAliasResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        entry:
+          $ref: "#/components/schemas/RecipientEntry"
+    RecipientEntry:
+      type: object
+      properties:
+        jid:
+          type: string
+        title:
+          type: string
+        isGroup:
+          type: boolean
+        numbers:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+    ContactsImportRequest:
+      type: object
+      required: [contacts]
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalContact"
+    ContactsImportResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+    LocalContact:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        phoneNumber:
+          type: string
+        numbers:
+          type: array
+          items:
+            type: string
+    SendMessageRequest:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+        message:
+          type: string
+        type:
+          type: string
+        sender:
+          type: string
+        group:
+          type: boolean
+        file:
+          type: string
+    SendMessageResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        id:
+          type: string
+        type:
+          type: string
+    HistoryResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        recipient:
+          $ref: "#/components/schemas/ResolvedRecipient"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ElymentsMessage"
+    ResolvedRecipient:
+      type: object
+      properties:
+        jid:
+          type: string
+        isGroup:
+          type: boolean
+        title:
+          type: string
+    ElymentsMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        jid:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        type:
+          type: string
+        text:
+          type: string
+        senderName:
+          type: string
+        messageId:
+          type: string
+        timestamp:
+          type: string

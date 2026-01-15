@@ -32,6 +32,28 @@ class TestClient extends ElymentsClient {
   }
 }
 
+class ContactSyncClient extends ElymentsClient {
+  constructor(
+    storeDir: string,
+    private readonly contacts: Array<{ name: string; phone: string }>,
+    private readonly profileContacts: Array<{ contactId: string; name: string }>
+  ) {
+    super({ storeDir });
+  }
+
+  protected async fetchChats() {
+    return [];
+  }
+
+  protected async loadLocalContacts() {
+    return this.contacts;
+  }
+
+  protected async fetchProfileContacts() {
+    return this.profileContacts;
+  }
+}
+
 test("resolveRecipient accepts jid", async () => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "elyments-recipient-"));
   const client = new TestClient(tmpDir);
@@ -73,6 +95,21 @@ test("resolveRecipient matches phone numbers", async () => {
   try {
     const recipient = await client.resolveRecipient("+919620515656");
     assert.equal(recipient.jid, "user-1@localhost");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRecipient maps phone via contacts sync", async () => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "elyments-recipient-"));
+  const client = new ContactSyncClient(
+    tmpDir,
+    [{ name: "Contact Sync User", phone: "+919999999999" }],
+    [{ contactId: "user-42", name: "Contact Sync User" }]
+  );
+  try {
+    const recipient = await client.resolveRecipient("+919999999999");
+    assert.equal(recipient.jid, "user-42@localhost");
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

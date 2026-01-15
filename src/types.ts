@@ -22,6 +22,13 @@ export type ElymentsProfile = {
   updatedAt?: string;
 };
 
+export type LocalContact = {
+  name?: string;
+  phone?: string;
+  phoneNumber?: string;
+  numbers?: string[];
+};
+
 export type OtpRequest = {
   countryCode: string;
   phoneNumber: string;

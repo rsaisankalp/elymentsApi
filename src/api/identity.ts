@@ -1,12 +1,25 @@
 import { OtpRequest, OtpVerifyRequest } from "../types.js";
 
-const IDENTITY_BASE = "https://identityapi.elyments.com/api/Identity";
+const IDENTITY_ROOT = "https://identityapi.elyments.com/api";
+const IDENTITY_BASE = `${IDENTITY_ROOT}/Identity`;
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
+function buildClientHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    "accept": "application/json, text/plain, */*",
+    "elyments-client-info":
+      "{\"applicationVersion\":\"143.0.0\", \"deviceOSVersion\":\"Mac OS\",\"deviceModel\":\"chrome\",\"deviceOEMName\":\"browser\",\"deviceType\":\"Web\"}",
+    "referer": "https://web.elyments.com/",
+    "origin": "https://web.elyments.com",
+    ...extra
+  };
+}
+
+async function postJson<T>(url: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      ...headers
     },
     body: JSON.stringify(body)
   });
@@ -26,15 +39,55 @@ export async function generateOtp(request: OtpRequest): Promise<unknown> {
   return postJson(`${IDENTITY_BASE}/GenerateOtp/V2`, {
     CountryCode: request.countryCode,
     MobileNumber: request.phoneNumber
-  });
+  }, buildClientHeaders());
 }
 
 export async function verifyOtp(request: OtpVerifyRequest): Promise<unknown> {
-  return postJson(`${IDENTITY_BASE}/VerifyOtp/V2`, {
+  const payload: Record<string, string> = {
     CountryCode: request.countryCode,
     MobileNumber: request.phoneNumber,
     Otp: request.otp,
-    DeviceToken: request.deviceToken ?? "dummy",
-    PlatformType: request.platformType ?? "WEB"
+    DeviceToken: request.deviceToken ?? "dummy"
+  };
+  if (request.platformType) {
+    payload.PlatformType = request.platformType;
+  }
+  return postJson(`${IDENTITY_BASE}/VerifyOtp/V2`, payload, buildClientHeaders());
+}
+
+export async function refreshSession(request: {
+  userId: string;
+  refreshToken: string;
+  deviceToken: string;
+  platformType?: string;
+  accessToken?: string;
+}): Promise<unknown> {
+  const res = await fetch(`${IDENTITY_BASE}/RefreshToken/V4`, {
+    method: "POST",
+    headers: {
+      ...buildClientHeaders({ "authorization": `bearer ${request.refreshToken}` })
+    }
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${text}`);
+  }
+  return res.json() as Promise<unknown>;
+}
+
+export async function logoutAllWebSessions(accessToken: string): Promise<unknown> {
+  const res = await fetch(`${IDENTITY_ROOT}/identity/logoutAllWeb`, {
+    method: "POST",
+    headers: buildClientHeaders({ "authorization": `bearer ${accessToken}` })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${text}`);
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
 }

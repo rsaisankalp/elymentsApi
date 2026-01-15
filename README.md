@@ -30,6 +30,11 @@ Send text:
 ./dist/cli.js sendMessage --type Text --message "Hi" --to "+919620515656"
 ```
 
+Import contacts for phone-only sending:
+```bash
+./dist/cli.js importContacts --file ./contacts.json
+```
+
 List chats and groups:
 ```bash
 ./dist/cli.js listChats
@@ -64,9 +69,21 @@ Endpoints:
 - `POST /login/verify` `{ countryCode, phoneNumber, otp, sender? }`
 - `GET /chats`
 - `GET /groups`
+- `POST /contacts/import` `{ contacts: [...] }`
 - `POST /messages` `{ to, message, type?, sender? }`
 - `GET /history?to=<jid|name|phone>&limit=100&timeout=8000`
 - `GET /events?to=<jid|name|phone>` (SSE stream)
+
+Docs:
+- `docs/cli.md`
+- `docs/api.md`
+- `docs/openapi.yaml`
+- `docs/clawdbot.md`
+
+Notes:
+- Contact auto-sync runs on startup if contacts exist; set `ELYMENTS_AUTO_SYNC_CONTACTS=0` to disable.
+- Device identity persists in `~/.elyments/auth/device.json`. To keep refresh tokens stable across restarts, set `ELYMENTS_DEVICE_ID`, `ELYMENTS_DEVICE_TOKEN`, `ELYMENTS_DEVICE_PLATFORM`, and `ELYMENTS_RESOURCE` explicitly and avoid logging in on other devices.
+- If refresh returns “multiple login attempts”, use `elyments logoutAllWeb` or `POST /logout/web` after re-login to clear other web sessions.
 
 ## Examples
 

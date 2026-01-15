@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Command } from "commander";
 import readline from "node:readline/promises";
+import { promises as fs } from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
 import { ElymentsClient } from "./client.js";
 import { resolveStoreDir } from "./store.js";
@@ -87,6 +88,21 @@ program
   });
 
 program
+  .command("logoutAllWeb")
+  .option("--session <path>", "session path")
+  .option("--store <path>", "store directory (default ~/.elyments)")
+  .action(async (opts) => {
+    const client = createClient(
+      resolveSessionPath(opts.session),
+      undefined,
+      resolveStorePath(opts.store)
+    );
+    await client.loadSession();
+    await client.logoutAllWebSessions();
+    console.log("Logged out all web sessions.");
+  });
+
+program
   .command("listGroups")
   .option("--session <path>", "session path")
   .option("--store <path>", "store directory (default ~/.elyments)")
@@ -125,6 +141,22 @@ program
       isGroup: Boolean(opts.group)
     });
     console.log(`Mapped ${opts.phone} -> ${entry.title} (${entry.jid})`);
+  });
+
+program
+  .command("importContacts")
+  .requiredOption("--file <path>", "JSON file with contacts")
+  .option("--store <path>", "store directory (default ~/.elyments)")
+  .action(async (opts) => {
+    const storeDir = resolveStorePath(opts.store);
+    const client = createClient(undefined, resolveSenderName(), storeDir);
+    const raw = await fs.readFile(String(opts.file), "utf8");
+    const contacts = JSON.parse(raw);
+    if (!Array.isArray(contacts)) {
+      throw new Error("Contacts file must be a JSON array.");
+    }
+    await client.importContacts(contacts);
+    console.log(`Imported ${contacts.length} contacts into ${storeDir}`);
   });
 
 program

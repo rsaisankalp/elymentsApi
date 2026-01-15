@@ -120,7 +120,8 @@ export class ElymentsXmppClient extends EventEmitter {
   async disconnect(): Promise<void> {
     if (!this.xmpp) return;
     this.stopKeepalive();
-    await this.xmpp.stop();
+    this.xmpp.removeAllListeners();
+    await this.xmpp.stop().catch(() => {});
     this.xmpp = null;
   }
 
@@ -163,26 +164,31 @@ export class ElymentsXmppClient extends EventEmitter {
     const lastModified = request.media.lastModified ?? now;
     const duration = request.media.duration ?? "";
 
+    const info: Record<string, unknown> = {
+      blobId: request.media.id,
+      caption: request.caption ?? "",
+      name: request.media.name ?? "file",
+      postedTime,
+      size: formatSize(request.media.size ?? 0),
+      type: innerType,
+      mimeType: request.media.mimeType ?? "application/octet-stream",
+      lastModified,
+      userId: this.session.userId,
+      duration
+    };
+    if (request.media.thumbnailUrl) {
+      info.thumbnail = request.media.thumbnailUrl;
+    }
+    if (outerType === "externalShareImage" || outerType === "externalShareVideo") {
+      info.url = request.media.url;
+      info.fileUrl = request.media.url;
+      info.mediaUrl = request.media.url;
+    }
+
     const body = JSON.stringify({
       senderName: request.senderName,
       ver: 1,
-      info: {
-        blobId: request.media.id,
-        url: request.media.url,
-        fileUrl: request.media.url,
-        mediaUrl: request.media.url,
-        caption: request.caption ?? "",
-        thumbnail: request.media.thumbnailUrl ?? "",
-        name: request.media.name ?? "file",
-        postedTime,
-        size: formatSize(request.media.size ?? 0),
-        sizeInBytes: request.media.size ?? 0,
-        type: innerType,
-        mimeType: request.media.mimeType ?? "application/octet-stream",
-        lastModified,
-        userId: this.session.userId,
-        duration
-      },
+      info,
       id: bodyId,
       type: outerType,
       lang: "en",
@@ -349,12 +355,12 @@ function createMessage(
   let messageId: string | undefined;
   try {
     const parsed = JSON.parse(body) as {
-      info?: { message?: string };
+      info?: { message?: string; caption?: string };
       senderName?: string;
       sender_name?: string;
       id?: string;
     };
-    text = parsed?.info?.message;
+    text = parsed?.info?.message || parsed?.info?.caption;
     senderName = parsed?.senderName ?? parsed?.sender_name;
     messageId = parsed?.id;
   } catch {
