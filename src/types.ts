@@ -1,3 +1,5 @@
+import type { MediaInfoType } from "./media.js";
+
 export type ElymentsSession = {
   userId: string;
   accessToken: string;
@@ -18,6 +20,13 @@ export type ElymentsProfile = {
   senderName?: string;
   userId?: string;
   updatedAt?: string;
+};
+
+export type LocalContact = {
+  name?: string;
+  phone?: string;
+  phoneNumber?: string;
+  numbers?: string[];
 };
 
 export type OtpRequest = {
@@ -68,6 +77,26 @@ export type SendTextRequest = {
   isGroup?: boolean;
   origin?: string;
   lang?: string;
+};
+
+export type SendMediaRequest = {
+  jid: string;
+  isGroup?: boolean;
+  senderName: string;
+  media: {
+    type: MediaInfoType;
+    url: string;
+    id: string;
+    name?: string;
+    size?: number;
+    mimeType?: string;
+    thumbnailUrl?: string;
+    duration?: string | number;
+    lastModified?: number;
+    postedTime?: number;
+  };
+  caption?: string;
+  origin?: string;
 };
 
 export type ResolvedRecipient = {

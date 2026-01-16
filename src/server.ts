@@ -39,6 +39,15 @@ app.post("/login/verify", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/logout/web", async (_req: Request, res: Response) => {
+  try {
+    await client.logoutAllWebSessions();
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get("/chats", async (_req: Request, res: Response) => {
   try {
     const chats = await client.listChats();
@@ -73,25 +82,54 @@ app.post("/recipients/alias", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/contacts/import", async (req: Request, res: Response) => {
+  try {
+    const payload = req.body ?? {};
+    const contacts = Array.isArray(payload) ? payload : payload.contacts;
+    if (!Array.isArray(contacts)) {
+      res.status(400).json({ ok: false, error: "contacts array is required" });
+      return;
+    }
+    await client.importContacts(contacts);
+    res.json({ ok: true, count: contacts.length });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.post("/messages", async (req: Request, res: Response) => {
   try {
-    const { to, message, type, sender, group } = req.body ?? {};
+    const { to, message, type, sender, group, file } = req.body ?? {};
     if (sender) client.setSenderName(sender);
-    if (!to || !message) {
-      res.status(400).json({ ok: false, error: "to and message are required" });
+    
+    if (!to) {
+      res.status(400).json({ ok: false, error: "to is required" });
       return;
     }
-    if (type && String(type).toLowerCase() !== "text") {
-      res.status(400).json({ ok: false, error: "Only text messages are supported for now." });
-      return;
+
+    const msgType = String(type ?? (file ? "Document" : "Text")).toLowerCase();
+    let id: string;
+
+    if (file) {
+      id = await client.uploadAndSendMedia(String(file), String(to), {
+        isGroup: Boolean(group),
+        caption: message ? String(message) : undefined,
+        type: type ? String(type) : undefined
+      });
+    } else {
+      if (!message) {
+        res.status(400).json({ ok: false, error: "message is required for text type" });
+        return;
+      }
+      const recipient = await client.resolveRecipient(String(to), { isGroup: Boolean(group) });
+      id = await client.sendText({
+        jid: recipient.jid,
+        text: String(message),
+        isGroup: recipient.isGroup
+      });
     }
-    const recipient = await client.resolveRecipient(String(to), { isGroup: Boolean(group) });
-    const id = await client.sendText({
-      jid: recipient.jid,
-      text: String(message),
-      isGroup: recipient.isGroup
-    });
-    res.json({ ok: true, id, recipient });
+    
+    res.json({ ok: true, id, type: msgType });
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }
