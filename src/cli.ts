@@ -3,8 +3,13 @@ import { Command } from "commander";
 import readline from "node:readline/promises";
 import { promises as fs } from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { ElymentsClient } from "./client.js";
 import { resolveStoreDir } from "./store.js";
+import { LocalContact } from "./types.js";
+
+const execFileAsync = promisify(execFile);
 
 const program = new Command();
 program.name("elyments").description("Elyments CLI (Baileys-style)");
@@ -157,6 +162,106 @@ program
     }
     await client.importContacts(contacts);
     console.log(`Imported ${contacts.length} contacts into ${storeDir}`);
+  });
+
+program
+  .command("importGoogleContacts")
+  .description("Import contacts from Google using gogcli (gog contacts list)")
+  .option("--max <number>", "maximum contacts to fetch (Google API limit: 2000)", "2000")
+  .option("--account <email>", "Google account email (if multiple accounts)")
+  .option("--store <path>", "store directory (default ~/.elyments)")
+  .option("--gog <path>", "path to gog binary", "gog")
+  .action(async (opts) => {
+    const storeDir = resolveStorePath(opts.store);
+    const { ElymentsAuthStore } = await import("./store.js");
+    const store = new ElymentsAuthStore(storeDir);
+    const gogBin = opts.gog;
+
+    console.log(`Fetching contacts from Google (max: ${opts.max})...`);
+
+    try {
+      // Build gog command arguments
+      const args = ["contacts", "list", "--json", "--max", String(opts.max)];
+      if (opts.account) {
+        args.push("--account", opts.account);
+      }
+
+      const { stdout } = await execFileAsync(gogBin, args, {
+        maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large contact lists
+      });
+
+      // Parse gogcli JSON output
+      const gogOutput = JSON.parse(stdout);
+
+      // gogcli wraps contacts in a "contacts" array
+      const gogContacts = Array.isArray(gogOutput) ? gogOutput : gogOutput.contacts;
+
+      if (!Array.isArray(gogContacts)) {
+        throw new Error("Unexpected gogcli output format - no contacts array found");
+      }
+
+      // Convert to LocalContact format
+      const contacts: LocalContact[] = [];
+      for (const gc of gogContacts) {
+        // gogcli contact structure: {resource, name, phone?, email?}
+        const name = gc.name || gc.displayName || "";
+
+        const numbers: string[] = [];
+
+        // Extract phone numbers - gogcli uses "phone" field directly
+        if (gc.phone) {
+          // Clean up phone number (remove spaces)
+          numbers.push(gc.phone.replace(/\s+/g, ""));
+        }
+        if (gc.phoneNumber) {
+          numbers.push(gc.phoneNumber.replace(/\s+/g, ""));
+        }
+        // Also check for phoneNumbers array (Google People API format)
+        if (Array.isArray(gc.phoneNumbers)) {
+          for (const pn of gc.phoneNumbers) {
+            const num = pn.value || pn.canonicalForm || pn.number;
+            if (num) numbers.push(num.replace(/\s+/g, ""));
+          }
+        }
+
+        if (name && numbers.length > 0) {
+          contacts.push({
+            name,
+            phone: numbers[0],
+            numbers
+          });
+        }
+      }
+
+      if (contacts.length === 0) {
+        console.log("No contacts with phone numbers found in Google Contacts.");
+        return;
+      }
+
+      // Load existing contacts and merge
+      const existing = (await store.loadContacts()) || [];
+      const existingNames = new Set(existing.map((c) => c.name?.toLowerCase()));
+      const newContacts = contacts.filter((c) => !existingNames.has(c.name?.toLowerCase()));
+      const merged = [...existing, ...newContacts];
+
+      await store.saveContacts(merged);
+      console.log(
+        `Imported ${newContacts.length} new contacts (${contacts.length} total with phone numbers) from Google into ${storeDir}`
+      );
+      console.log(`Total contacts in store: ${merged.length}`);
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        console.error(
+          `Error: gogcli (gog) not found. Install it from https://github.com/steipete/gogcli`
+        );
+        console.error(`Or specify path with --gog /path/to/gog`);
+      } else if (err.message?.includes("no accounts")) {
+        console.error(`Error: No Google accounts configured. Run: gog auth add`);
+      } else {
+        console.error(`Error: ${err.message}`);
+      }
+      process.exit(1);
+    }
   });
 
 program

@@ -244,6 +244,14 @@ export class ElymentsClient extends EventEmitter {
     const chats = await this.fetchChats();
     if (chats.length) {
       await this.updateRecipientCache(chats);
+
+      // If we have a phone number, try to match local contact names against chat names
+      if (normalizedPhone) {
+        const matchedChat = await this.matchPhoneToChat(normalizedPhone, chats);
+        if (matchedChat) {
+          return { jid: matchedChat.jid, isGroup: matchedChat.isGroup, title: matchedChat.title };
+        }
+      }
     }
     const refreshed = this.findRecipientInCache({
       normalizedName,
@@ -310,8 +318,9 @@ export class ElymentsClient extends EventEmitter {
     recipientInput: string,
     options: ResolveRecipientOptions & { caption?: string; senderName?: string; type?: string } = {}
   ): Promise<string> {
-    await this.ensureValidSession();
-    const session = this.requireSession();
+    return this.withAutoRefresh(async () => {
+      await this.ensureValidSession();
+      const session = this.requireSession();
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
@@ -408,6 +417,7 @@ export class ElymentsClient extends EventEmitter {
         await prepared.cleanup();
       }
     }
+    });
   }
 
   async fetchHistory(jid: string, max = 100): Promise<void> {
@@ -536,9 +546,14 @@ export class ElymentsClient extends EventEmitter {
     for (const contact of contacts) {
       const name = normalizeName(contact.name ?? (contact as any).displayName ?? "");
       if (!name) continue;
-      const numbers = dedupeNumbers(extractNumbersFromContact(contact));
+      const numbers = dedupeNumbers(extractNumbersFromContact(contact).map(n => normalizePhone(n)));
       if (!numbers.length) continue;
-      if (normalizedTarget && !numbers.some((number) => number === normalizedTarget)) {
+      // Match if any number ends with target or target ends with number (flexible matching)
+      if (normalizedTarget && !numbers.some((number) =>
+        number === normalizedTarget ||
+        number.endsWith(normalizedTarget) ||
+        normalizedTarget.endsWith(number)
+      )) {
         continue;
       }
       const existing = byName.get(name) ?? [];
@@ -553,11 +568,48 @@ export class ElymentsClient extends EventEmitter {
     const now = new Date().toISOString();
     for (const entry of synced) {
       if (!entry || entry.isDeleted) continue;
-      const name = normalizeName(entry.name ?? "");
-      if (!name) continue;
-      const numbers = byName.get(name);
+      const serverName = normalizeName(entry.name ?? "");
+      if (!serverName) continue;
+
+      // Try exact match first
+      let numbers = byName.get(serverName);
+      let matchedLocalName = serverName;
+
+      // If no exact match, try word-based matching
+      if (!numbers || numbers.length === 0) {
+        const serverWords = extractNameWords(serverName);
+        if (serverWords.size >= 2) {
+          let bestMatch: { name: string; numbers: string[]; score: number } | null = null;
+
+          for (const [localName, localNumbers] of byName.entries()) {
+            const localWords = extractNameWords(localName);
+            if (localWords.size < 2) continue;
+
+            // Count matching words (minimum 3 chars each)
+            const matchingWords = [...serverWords].filter(w => localWords.has(w));
+            const matchScore = matchingWords.length / Math.min(serverWords.size, localWords.size);
+
+            // Require at least 50% word match and at least 2 matching words
+            if (matchScore >= 0.5 && matchingWords.length >= 2) {
+              if (!bestMatch || matchScore > bestMatch.score) {
+                bestMatch = { name: localName, numbers: localNumbers, score: matchScore };
+              }
+            }
+          }
+
+          if (bestMatch) {
+            numbers = bestMatch.numbers;
+            matchedLocalName = bestMatch.name;
+          }
+        }
+      }
+
       if (!numbers || numbers.length === 0) continue;
-      if (normalizedTarget && !numbers.some((number) => number === normalizedTarget)) {
+      if (normalizedTarget && !numbers.some((number) =>
+        number === normalizedTarget ||
+        number.endsWith(normalizedTarget) ||
+        normalizedTarget.endsWith(number)
+      )) {
         continue;
       }
       const contactId = String(entry.contactId ?? entry.contact_id ?? entry.id ?? "").trim();
@@ -586,6 +638,63 @@ export class ElymentsClient extends EventEmitter {
       await this.persistRecipientCache();
     }
     return updated;
+  }
+
+  private async matchPhoneToChat(
+    normalizedPhone: string,
+    chats: ChatSummary[]
+  ): Promise<ChatSummary | null> {
+    const contacts = await this.loadLocalContacts();
+    if (!contacts || contacts.length === 0) return null;
+
+    // Find local contacts that have this phone number
+    const matchingContacts: string[] = [];
+    for (const contact of contacts) {
+      const numbers = dedupeNumbers(extractNumbersFromContact(contact).map(n => normalizePhone(n)));
+      if (numbers.some(n => n === normalizedPhone || n.endsWith(normalizedPhone) || normalizedPhone.endsWith(n))) {
+        const name = contact.name ?? (contact as any).displayName;
+        if (name) matchingContacts.push(name);
+      }
+    }
+
+    if (matchingContacts.length === 0) return null;
+
+    // Try to match contact names against chat titles using word-based matching
+    let bestMatch: { chat: ChatSummary; score: number } | null = null;
+
+    for (const contactName of matchingContacts) {
+      const contactWords = extractNameWords(contactName);
+      if (contactWords.size < 2) continue;
+
+      for (const chat of chats) {
+        if (chat.isGroup) continue; // Skip groups for phone matching
+        const chatWords = extractNameWords(chat.title);
+        if (chatWords.size < 2) continue;
+
+        const matchingWords = [...contactWords].filter(w => chatWords.has(w));
+        const score = matchingWords.length / Math.min(contactWords.size, chatWords.size);
+
+        // Require at least 50% word match and at least 2 matching words
+        if (score >= 0.5 && matchingWords.length >= 2) {
+          if (!bestMatch || score > bestMatch.score) {
+            bestMatch = { chat, score };
+          }
+        }
+      }
+    }
+
+    if (bestMatch) {
+      // Also update the recipient cache with this phone mapping
+      const entry = this.recipientIndex.byJid.get(bestMatch.chat.jid);
+      if (entry && !entry.numbers.includes(normalizedPhone)) {
+        entry.numbers.push(normalizedPhone);
+        entry.updatedAt = new Date().toISOString();
+        await this.persistRecipientCache();
+      }
+      return bestMatch.chat;
+    }
+
+    return null;
   }
 
   private async syncContactsOnStart(): Promise<void> {
@@ -650,40 +759,43 @@ export class ElymentsClient extends EventEmitter {
     phone: string,
     options: ResolveRecipientOptions = {}
   ): Promise<RecipientEntry> {
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) {
-      throw new Error("Phone number is required for alias.");
-    }
+    return this.withAutoRefresh(async () => {
+      const normalizedPhone = normalizePhone(phone);
+      if (!normalizedPhone) {
+        throw new Error("Phone number is required for alias.");
+      }
 
-    const recipient = await this.resolveRecipient(input, options);
-    if (this.recipientEntries.length === 0) {
-      await this.listChats();
-    }
+      const recipient = await this.resolveRecipient(input, options);
+      if (this.recipientEntries.length === 0) {
+        await this.listChats();
+      }
 
-    let entry = this.recipientIndex.byJid.get(recipient.jid);
-    if (!entry) {
-      await this.listChats();
-      entry = this.recipientIndex.byJid.get(recipient.jid);
-    }
-    if (!entry) {
-      throw new Error("Recipient not found in cache. Run listChats first.");
-    }
+      let entry = this.recipientIndex.byJid.get(recipient.jid);
+      if (!entry) {
+        await this.listChats();
+        entry = this.recipientIndex.byJid.get(recipient.jid);
+      }
+      if (!entry) {
+        throw new Error("Recipient not found in cache. Run listChats first.");
+      }
 
-    if (!entry.numbers.includes(normalizedPhone)) {
-      entry.numbers.push(normalizedPhone);
-      entry.updatedAt = new Date().toISOString();
-      await this.persistRecipientCache();
-    }
+      if (!entry.numbers.includes(normalizedPhone)) {
+        entry.numbers.push(normalizedPhone);
+        entry.updatedAt = new Date().toISOString();
+        await this.persistRecipientCache();
+      }
 
-    return entry;
+      return entry;
+    });
   }
 }
 
 function normalizePhone(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
-  const digits = trimmed.replace(/[^\d+]/g, "");
-  return digits.startsWith("+") ? digits.slice(1) : digits;
+  const digits = trimmed.replace(/[^\d]/g, "");
+  // Return last 10 digits for consistent matching (handles country codes)
+  return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
 function normalizeOtpRequest<T extends { countryCode: string; phoneNumber: string }>(request: T): T {
@@ -714,6 +826,17 @@ function normalizeOtpRequest<T extends { countryCode: string; phoneNumber: strin
 
 function normalizeName(input: string): string {
   return input.trim().toLowerCase();
+}
+
+function extractNameWords(name: string): Set<string> {
+  // Extract words with at least 3 characters, ignoring common articles only
+  const stopWords = new Set(["the", "and", "for", "from", "with"]);
+  const words = name.toLowerCase()
+    .replace(/[''`]/g, "") // Remove apostrophes
+    .split(/[\s\-_.,()]+/)
+    .filter(w => w.length >= 3)
+    .filter(w => !stopWords.has(w));
+  return new Set(words);
 }
 
 function extractNumbersFromText(text: string): string[] {
