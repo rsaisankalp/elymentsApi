@@ -143,12 +143,13 @@ export class ElymentsClient extends EventEmitter {
     if (!session.refreshToken) {
       throw new Error("No refresh token available.");
     }
+    const refreshToken = session.refreshToken;
     const device = await this.store.ensureDevice();
     this.refreshPromise = (async () => {
       try {
         const response = await refreshSession({
           userId: session.userId,
-          refreshToken: session.refreshToken,
+          refreshToken,
           deviceToken: device.deviceToken,
           platformType: device.platform,
           accessToken: session.accessToken

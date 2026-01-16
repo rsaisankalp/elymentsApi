@@ -65,13 +65,16 @@ export class ElymentsAuthStore {
     const envResource = process.env.ELYMENTS_RESOURCE?.trim();
 
     if (existing) {
-      if (!envDeviceId && !envDeviceToken && !envPlatform && !envResource) {
+      // Check if existing device has valid (non-empty) values
+      const hasValidDevice = existing.deviceId && existing.deviceToken;
+      if (hasValidDevice && !envDeviceId && !envDeviceToken && !envPlatform && !envResource) {
         return existing;
       }
-      const deviceId = envDeviceId ?? existing.deviceId;
-      const deviceToken = envDeviceToken ?? existing.deviceToken;
-      const platform = (envPlatform as ElymentsDevice["platform"]) ?? existing.platform;
-      const resource = envResource ?? `web-${deviceId.slice(0, 8)}`;
+      // Regenerate empty values or use env overrides
+      const deviceId = envDeviceId || existing.deviceId || crypto.randomUUID();
+      const deviceToken = envDeviceToken || existing.deviceToken || crypto.randomUUID();
+      const platform = (envPlatform as ElymentsDevice["platform"]) ?? existing.platform ?? "WEB";
+      const resource = envResource || existing.resource || `web-${deviceId.slice(0, 8)}`;
       const updated: ElymentsDevice = {
         ...existing,
         deviceId,
@@ -83,9 +86,9 @@ export class ElymentsAuthStore {
       return updated;
     }
 
-    const deviceId = envDeviceId ?? crypto.randomUUID();
-    const deviceToken = envDeviceToken ?? crypto.randomUUID();
-    const resource = envResource ?? `web-${deviceId.slice(0, 8)}`;
+    const deviceId = envDeviceId || crypto.randomUUID();
+    const deviceToken = envDeviceToken || crypto.randomUUID();
+    const resource = envResource || `web-${deviceId.slice(0, 8)}`;
     const platform = (envPlatform as ElymentsDevice["platform"]) ?? "WEB";
     const device: ElymentsDevice = {
       deviceId,

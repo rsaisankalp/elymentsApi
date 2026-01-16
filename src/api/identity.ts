@@ -62,11 +62,19 @@ export async function refreshSession(request: {
   platformType?: string;
   accessToken?: string;
 }): Promise<unknown> {
+  const payload: Record<string, string> = {
+    DeviceToken: request.deviceToken
+  };
+  if (request.platformType) {
+    payload.PlatformType = request.platformType;
+  }
   const res = await fetch(`${IDENTITY_BASE}/RefreshToken/V4`, {
     method: "POST",
     headers: {
+      "content-type": "application/json",
       ...buildClientHeaders({ "authorization": `bearer ${request.refreshToken}` })
-    }
+    },
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
     const text = await res.text();
